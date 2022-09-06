@@ -5,12 +5,15 @@ import re
 import string
 import threading
 import time
-import tkinter
+import tkinter as tk
 import sys
 from tkinter import *
 from tkinter import (END, dialog, filedialog, messagebox, scrolledtext,
                      simpledialog, ttk)
 import serial.tools.list_ports
+import tkinter.ttk as ttk
+from ctypes import *
+
 
 
 class MainSerial:
@@ -22,13 +25,88 @@ class MainSerial:
         self.myserial = None
         self.ser = None
         self.flag_ser = None
+        class _PointAPI(Structure): # 用于getpos()中API函数的调用
+            _fields_ = [("x", c_ulong), ("y", c_ulong)]
 
+        def getpos():
+            # 调用API函数获取当前鼠标位置。返回值以(x,y)形式表示。
+            po = _PointAPI()
+            windll.user32.GetCursorPos(byref(po))
+            return int(po.x), int(po.y)
+        def xpos():return getpos()[0]
+        def ypos():return getpos()[1]
+
+        # tkinter控件支持作为字典键。
+        # bound的键是dragger, 值是包含1个或多个绑定事件的列表, 值用于存储控件绑定的数据
+        # 列表的一项是对应tkwidget和其他信息的元组
+        bound = {}
+        def __add(wid,data):# 添加绑定数据
+            bound[wid]=bound.get(wid,[])+[data]
+
+
+        def move(widget,x=None,y=None,width=None,height=None):
+            "移动控件或窗口widget, 参数皆可选。"
+            x=x if x!=None else widget.winfo_x()
+            y=y if y!=None else widget.winfo_y()
+            width=width if width!=None else widget.winfo_width()
+            height=height if height!=None else widget.winfo_height()
+            if isinstance(widget,tk.Wm):
+                widget.geometry("%dx%d+%d+%d"%(width,height,x,y))
+            else:
+                widget.place(x=x,y=y,width=width,height=height)
+            return x,y,width,height
+
+        def _mousedown(event):
+            if event.widget not in bound:return
+            lst=bound[event.widget]
+            for data in lst: # 开始拖动时, 在每一个控件记录位置和控件尺寸
+                widget=data[1]
+                widget.mousex,widget.mousey = getpos()
+                widget.startx,widget.starty = widget.winfo_x(),widget.winfo_y()
+                widget.start_w=widget.winfo_width()
+                widget.start_h=widget.winfo_height()
+        def _drag(event):
+            if event.widget not in bound:return
+            lst=bound[event.widget]
+            for data in lst: # 多个绑定
+                if data[0]!='drag':return
+                widget=data[1]
+                dx = xpos()-widget.mousex # 计算鼠标当前位置和开始拖动时位置的差距
+                # 注: 鼠标位置不能用event.x和event.y
+                # event.x,event.y与控件的位置、大小有关，不能真实地反映鼠标移动的距离差值
+                dy = ypos()-widget.mousey 
+                move(widget,widget.startx + dx if data[2] else None,
+                            widget.starty + dy if data[3] else None)
+
+        def draggable(tkwidget,x=True,y=True):
+            """调用draggable(tkwidget) 使tkwidget可拖动。
+        tkwidget: 一个控件(Widget)或一个窗口(Wm)。
+        x 和 y: 只允许改变x坐标或y坐标。"""
+            bind_drag(tkwidget,tkwidget,x,y)
+
+        def bind_drag(tkwidget,dragger,x=True,y=True):
+            """绑定拖曳事件。
+        tkwidget: 被拖动的控件或窗口,
+        dragger: 接收鼠标事件的控件,
+        调用bind_drag后,当鼠标拖动dragger时, tkwidget会被带着拖动, 但dragger
+        作为接收鼠标事件的控件, 位置不会改变。
+        x 和 y: 同draggable()函数。"""
+            dragger.bind("<Button-1>",_mousedown,add='+')
+            dragger.bind("<B1-Motion>",_drag,add='+')
+            __add(dragger,('drag',tkwidget,x,y)) # 在bound字典中记录数据
+        btns=[]
+        def adjust_button(event=None):
+        # 改变大小或拖动后,调整手柄位置
+            for b in btns:
+                x,y=b._func()
+                b.place(x=x,y=y)
         # 初始化窗体
-        self.mainwin = tkinter.Tk()
+        self.mainwin = tk.Tk()
         self.mainwin.title("WCM CodeTest")
         screen_width = self.mainwin.winfo_screenwidth()
         screen_height = self.mainwin.winfo_screenheight()
-
+        
+        
         # calculate position x and y coordinates
         x = (screen_width / 2) - (700 / 2)
         y = (screen_height / 2) - (600 / 2)
@@ -44,7 +122,7 @@ class MainSerial:
         tab_main.add(tab2, text='设置项')
         #画布1
         self.canvas = Canvas(tab1,
-                             height=140,
+                             height=320,
                              width=180,
                              highlightthickness=0.5,
                              bg='lightGray',
@@ -56,13 +134,13 @@ class MainSerial:
                   y=20,
               )
         # 串口号
-        self.label1 = tkinter.Label(tab1,
+        self.label1 =Label(tab1,
                                     text="串口号:",
                                     font=("宋体", 10),
                                     height=2,
                                     bg='lightGray')
         self.label1.place(x=25, y=45)
-        self.com1value = tkinter.StringVar()  # 窗体中自带的文本，创建一个值
+        self.com1value = tk.StringVar()  # 窗体中自带的文本，创建一个值
         self.combobox_port = ttk.Combobox(
             tab1,
             textvariable=self.com1value,
@@ -72,12 +150,12 @@ class MainSerial:
         self.combobox_port["value"] = self.port_get()
         self.combobox_port.place(x=80, y=45)  # 显示
         #波特率
-        self.label2 = tkinter.Label(tab1,
+        self.label2 = Label(tab1,
                                     text="波特率:",
                                     font=("宋体", 10),
                                     bg='lightGray')
         self.label2.place(x=25, y=80)
-        self.bandvalue = tkinter.StringVar()  # 窗体中自带的文本，创建一个值
+        self.bandvalue = tk.StringVar()  # 窗体中自带的文本，创建一个值
         self.combobox_band = ttk.Combobox(tab1,
                                           textvariable=self.bandvalue,
                                           height=12,
@@ -89,7 +167,7 @@ class MainSerial:
         ]  # 常规用波特率
         self.combobox_band.current(3)  # 默认选中9600
         self.combobox_band.place(x=80, y=80)  # 显示
-        self.openport = tkinter.Button(tab1,
+        self.openport = tk.Button(tab1,
                                        text="打开串口",
                                        command=self.open_port,
                                        font=("宋体", 10),
@@ -97,22 +175,54 @@ class MainSerial:
                                        width=8,
                                        height=1)
         self.openport.place(x=25, y=120)
-        self.button_find = tkinter.Button(
+        self.button_find = tk.Button(
             tab1,
-            text="扫描串口",  # 显示文本
+            text="扫描串口",  
             command=self.port_get,
             font=("宋体", 10),
             bg='lightGray',
             width=8,
             height=1)
         self.button_find.place(x=105, y=120)
+        self.button_232 = tk.Button(
+            tab1,
+            text="TTL-232串口",  
+            font=("宋体", 9),
+            bg='lightGray',
+            width=10,command=lambda:self.com('00'),
+            height=1)
+        self.button_232.place(x=105, y=160)
+        self.button_HID = tk.Button(
+            tab1,
+            text="USB-HID",  
+            font=("宋体", 9),
+            bg='lightGray',command=lambda:self.com('01'),
+            width=10,
+            height=1)
+        self.button_HID.place(x=25, y=160)
+        self.button_VCP = tk.Button(
+            tab1,
+            text="虚拟串口",  
+            font=("宋体", 9),
+            bg='lightGray',command=lambda:self.com('11'),
+            width=10,
+            height=1)
+        self.button_VCP.place(x=105, y=200)
+        self.button_HIDTTL = tk.Button(
+            tab1,
+            text="HID/TTL同时",  
+            font=("宋体", 9),
+            bg='lightGray',command=lambda:self.com('10'),
+            width=10,
+            height=1)
+        self.button_HIDTTL.place(x=25, y=200)
         self.data_txt = scrolledtext.ScrolledText(self.mainwin,
                                                   width=65,
                                                   height=24,
                                                   bg='lightGray',
                                                   font=("宋体", 10))
         self.data_txt.place(x=210, y=50)
-        self.formatvalue = tkinter.StringVar()
+        self.formatvalue = tk.StringVar()
         self.combobox_format = ttk.Combobox(self.mainwin,
                                             textvariable=self.formatvalue,
                                             height=4,
@@ -129,6 +239,7 @@ class MainSerial:
                                      offvalue=0,
                                      variable=self.recv_hex,
                                      bg='lightGray')
+        
         self.check_hex.place(x=350, y=30)
         Label(self.mainwin,
               text='超时时间       ms',
@@ -147,15 +258,7 @@ class MainSerial:
                                   command=self.txt_del)
         self.btn_qingchu.place(x=570, y=30)
 
-        self.txt = scrolledtext.ScrolledText(tab1,
-                                             width=23,
-                                             height=13,
-                                             highlightthickness=0.5,
-                                             bg='lightGray',
-                                             highlightbackground="black",
-                                             font=("宋体", 10),
-                                             wrap=None)
-        self.txt.place(x=15, y=165)
+        
 
         #画布2
         self.canvas1 = Canvas(tab1,
@@ -175,6 +278,8 @@ class MainSerial:
                                    width=12,
                                    bg='lightGray',
                                    command=lambda: self.mode(bit='00'))
+        draggable(self.btn_shoudong)
+        self.btn_shoudong.bind('<B1-Motion>',adjust_button,add='+')
         self.btn_shoudong.place(x=25, y=365)
         self.btn_lianxu = Button(tab1,
                                  text='连续模式',
@@ -292,7 +397,7 @@ class MainSerial:
 
         self.btn_send = Button(tab1, text='发送', command=self.send_data)
         self.btn_send.place(x=580, y=492)
-
+    
     def send_data(self, time=None):
         data = self.send_tx.get('0.0', 'end').strip()
 
@@ -315,11 +420,11 @@ class MainSerial:
         self.flag_ser = False
         try:
             self.ser.write(bytes.fromhex(data))
-            self.ser.flushInput()
-            self.txt.insert(END,
-                            str(datetime.datetime.now())[11:-3] + '写入成功\n')
-            self.txt.update()
-            self.txt.see(END)
+            
+            self.data_txt.insert(END,
+                            str(datetime.datetime.now())[11:-3] + data+'\n')
+            self.data_txt.update()
+            self.data_txt.see(END)
         except:
             messagebox.showinfo('写入错误', '请检查串口连接')
         self.mainwin.after(40)
@@ -358,7 +463,42 @@ class MainSerial:
                     time.sleep(int(self.ent_timeout.get()) / 1000)
                 except:
                     time.sleep(0.02)
+    def com(self, bit):
+        dict1 = {'00': '串口输出', '01': 'USB -HID', '10': '串口&HID同时输出', '11': 'USB 虚拟串口'}
+        self.flag_ser = False
+        self.ser.flushInput()
+        self.ser.write(bytes.fromhex('7E 00 07 01 00 0D 01 AB CD'))  #查询
 
+        self.mainwin.after(40)
+        if self.ser.in_waiting:
+            a = str(binascii.b2a_hex(self.ser.read(
+                self.ser.in_waiting)))[2:-1].upper()
+            s = a.find('02000001')
+            b = a[s + 8:s + 10]
+            b = bin(int(b, 16)).replace('0b', '').zfill(8)
+            c = b[0:6] + str(bit)
+            c = hex(int(c, 2)).replace('0x', '').zfill(2).upper()
+
+            self.ser.write(
+                bytes.fromhex('7E 00 08 01 00 0D ' + c.replace('0x', '') +
+                              ' AB CD'))  #写入
+            self.ser.write(bytes.fromhex('7E 00 07 01 00 00 01 AB CD'))  #查询
+            self.mainwin.after(60)
+            if self.ser.in_waiting:
+                re = str(binascii.b2a_hex(self.ser.read(
+                    self.ser.in_waiting)))[2:-1].upper()
+        if '02000001003331' in re:
+            self.data_txt.insert(
+                END,
+                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功\n')
+            self.data_txt.update()
+            self.data_txt.see(END)
+        self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
+        self.ser.flushInput()
+        self.mainwin.after(20)
+        self.flag_ser = True
+        self.recv = threading.Thread(target=self.recv_data)
+        self.recv.start()
     def mode(self, bit):
         dict1 = {'00': '手动模式', '01': '命令触发', '10': '连续模式', '11': '感应模式'}
         self.flag_ser = False
@@ -384,11 +524,11 @@ class MainSerial:
                 re = str(binascii.b2a_hex(self.ser.read(
                     self.ser.in_waiting)))[2:-1].upper()
         if '02000001003331' in re:
-            self.txt.insert(
+            self.data_txt.insert(
                 END,
                 str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功\n')
-            self.txt.update()
-            self.txt.see(END)
+            self.data_txt.update()
+            self.data_txt.see(END)
         self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
         self.ser.flushInput()
         self.mainwin.after(20)
@@ -428,12 +568,12 @@ class MainSerial:
                         a = '无间隔'
                     else:
                         a = str(a) + 'ms'
-                    self.txt.insert(
+                    self.data_txt.insert(
                         END,
                         str(datetime.datetime.now())[11:-3] +
                         '识读间隔【%s】写入成功\n' % a)
-                    self.txt.update()
-                    self.txt.see(END)
+                    self.data_txt.update()
+                    self.data_txt.see(END)
         except:
             messagebox.showinfo('错误', '请检查串口连接')
         self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
@@ -477,9 +617,9 @@ class MainSerial:
                 self.combobox_band.config(state=DISABLED)
                 self.recv = threading.Thread(target=self.recv_data)
                 self.recv.start()
-                self.txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
+                self.data_txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
                                 '串口已打开\n')
-                self.txt.see(END)
+                self.data_txt.see(END)
             except:
                 if self.com_choose == '':
                     messagebox.showinfo('错误', '没有找到端口')
@@ -492,9 +632,9 @@ class MainSerial:
                 self.openport.config(text='打开串口', bg='lightGray')
                 self.combobox_port.config(state=NORMAL)
                 self.combobox_band.config(state=NORMAL)
-                self.txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
+                self.data_txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
                                 '串口已关闭\n')
-                self.txt.see(END)
+                self.data_txt.see(END)
 
     def txt_del(self):
         #self.txt.delete(0.0, END)
