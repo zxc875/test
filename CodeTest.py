@@ -11,7 +11,7 @@ from tkinter import *
 from tkinter import (END, dialog, filedialog, messagebox, scrolledtext,
                      simpledialog, ttk)
 import serial.tools.list_ports
-import tkinter.ttk as ttk
+import serial
 from ctypes import *
 
 
@@ -216,6 +216,9 @@ class MainSerial:
             width=10,
             height=1)
         self.button_HIDTTL.place(x=25, y=200)
+        self.button_star = tk.Button(tab1,text='触发识读命令',  
+            font=("宋体", 9),bg='lightGray',command=lambda:self.send_txt('7E 00 08 01 00 02 01 AB CD'),width=10)
+        self.button_star.place(x=25, y=240)
         self.data_txt = scrolledtext.ScrolledText(self.mainwin,
                                                   width=65,
                                                   height=24,
@@ -340,7 +343,7 @@ class MainSerial:
                                bg='lightGray',
                                command=self.time_self)
         self.btn_self.place(x=370, y=400)
-
+       
         #画布4
         self.canvas3 = Canvas(tab1,
                               height=50,
@@ -373,14 +376,14 @@ class MainSerial:
             bg='lightGray',
             command=lambda: self.reset(data='7E 00 08 01 00 D9 55 AB CD'))
         self.btn_recovery.place(x=550, y=372)
-        self.btn_CR=Button(tab1,text='CR', height=1,bg='lightGray')
+        self.btn_CR=Button(tab1,text='CR', height=1,bg='lightGray',command=lambda:self.end_data('00'))
         self.btn_CR.place(x=460,y=412)
-        self.btn_TAB=Button(tab1,text='TAB', height=1,bg='lightGray')
+        self.btn_TAB=Button(tab1,text='TAB', height=1,bg='lightGray',command=lambda:self.end_data('10'))
         self.btn_TAB.place(x=500,y=412)
-        self.btn_CRLF=Button(tab1,text='CRLF', height=1,bg='lightGray')
+        self.btn_CRLF=Button(tab1,text='CRLF', height=1,bg='lightGray',command=lambda:self.end_data('01'))
         self.btn_CRLF.place(x=540,y=412)
-        self.btn_None=Button(tab1,text='无', height=1,bg='lightGray')
-        self.btn_None.place(x=580,y=412)
+        self.btn_None=Button(tab1,text='无', height=1,bg='lightGray',command=lambda:self.end_data('11'))
+        self.btn_None.place(x=590,y=412)
         Label(self.mainwin, text='-' * 130, bg='lightGray').place(x=15, y=550)
         self.send_tx = Text(tab1, width=80, height=5)
         self.send_tx.place(x=15, y=452)
@@ -397,11 +400,48 @@ class MainSerial:
 
         self.btn_send = Button(tab1, text='发送', command=self.send_data)
         self.btn_send.place(x=580, y=492)
-    
+    def end_data(self,bit):
+        dict1 = {'00': 'CR', '01': 'CRLF', '10': 'TAB', '11': 'USB 无'}
+        self.end_dat=dict1[bit]
+        self.flag_ser = False
+        self.ser.flushInput()
+        self.ser.write(bytes.fromhex('7E 00 07 01 00 60 01 AB CD'))  #查询
+
+        self.mainwin.after(40)
+        if self.ser.in_waiting:
+            a = str(binascii.b2a_hex(self.ser.read(
+                self.ser.in_waiting)))[2:-1].upper()
+            s = a.find('02000001')
+            b = a[s + 8:s + 10]
+            b = bin(int(b, 16)).replace('0b', '').zfill(8)
+            c = b[0] + str(bit)+b[3::]
+            c = hex(int(c, 2)).replace('0x', '').zfill(2).upper()
+
+            self.ser.write(
+                bytes.fromhex('7E 00 08 01 00 60 ' + c.replace('0x', '') +
+                              ' AB CD'))  #写入
+            self.ser.write(bytes.fromhex('7E 00 07 01 00 60 01 AB CD'))  #查询
+            self.mainwin.after(60)
+            if self.ser.in_waiting:
+                re = str(binascii.b2a_hex(self.ser.read(
+                    self.ser.in_waiting)))[2:-1].upper()
+        if '02000001003331' in re:
+            self.data_txt.insert(
+                END,'\n'+
+                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功')
+            self.data_txt.update()
+            self.data_txt.see(END)
+        self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
+        self.ser.flushInput()
+        self.mainwin.after(80)
+        self.flag_ser = True
+        self.recv = threading.Thread(target=self.recv_data)
+        self.recv.start()
     def send_data(self, time=None):
         data = self.send_tx.get('0.0', 'end').strip()
 
-        print(len(data))
+        print(str(datetime.datetime.now())[11:-3],len(data))
+        
         if len(data) > 0:
             if self.ser.isOpen():
                 try:
@@ -433,19 +473,23 @@ class MainSerial:
         self.flag_ser = False
 
     def recv_data(self):
+        self.mainwin.after(100)
+        self.ser.flushInput()
         if self.flag_ser == True:
             while 1:
                 if self.ser == None or self.flag_ser == False:
                     break
-                if self.ser.inWaiting():
+                try:
+                  if self.ser.in_waiting:
                     if self.recv_hex.get() == 0:
-                        recv = (self.ser.read_all())
+                        
+                        recv = (self.ser.read(self.ser.in_waiting))
                         recv = recv.decode(self.combobox_format.get(),
                                            'replace')
                         self.data_txt.insert(
                             END,
-                            str(datetime.datetime.now())[11:-3] + '[收]←' +
-                            recv + '\n')
+                            '\n'+str(datetime.datetime.now())[11:-3] + '[收]←' +
+                            recv )
 
                     else:
                         rec = str(
@@ -456,9 +500,15 @@ class MainSerial:
                         self.data_txt.insert(
                             END,
                             str(datetime.datetime.now())[11:-3] + '[收]←' +
-                            recv + '\n')
-                self.data_txt.update()
+                            recv )
+                except:
+                    self.open_port()
                 self.data_txt.see(END)
+                self.data_txt.update()
+                #self.data_txt.mark_set('insert',END)
+                self.data_txt.mark_set('insert',END)
+                endline, endcolumn = self.data_txt.index('end').split('.')
+                
                 try:
                     time.sleep(int(self.ent_timeout.get()) / 1000)
                 except:
@@ -482,20 +532,20 @@ class MainSerial:
             self.ser.write(
                 bytes.fromhex('7E 00 08 01 00 0D ' + c.replace('0x', '') +
                               ' AB CD'))  #写入
-            self.ser.write(bytes.fromhex('7E 00 07 01 00 00 01 AB CD'))  #查询
+            self.ser.write(bytes.fromhex('7E 00 07 01 00 0D 01 AB CD'))  #查询
             self.mainwin.after(60)
             if self.ser.in_waiting:
                 re = str(binascii.b2a_hex(self.ser.read(
                     self.ser.in_waiting)))[2:-1].upper()
         if '02000001003331' in re:
             self.data_txt.insert(
-                END,
-                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功\n')
+                END,'\n'+
+                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功')
             self.data_txt.update()
             self.data_txt.see(END)
         self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
         self.ser.flushInput()
-        self.mainwin.after(20)
+        self.mainwin.after(80)
         self.flag_ser = True
         self.recv = threading.Thread(target=self.recv_data)
         self.recv.start()
@@ -525,13 +575,12 @@ class MainSerial:
                     self.ser.in_waiting)))[2:-1].upper()
         if '02000001003331' in re:
             self.data_txt.insert(
-                END,
-                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功\n')
+                END,'\n'+
+                str(datetime.datetime.now())[11:-3] + dict1[bit] + '写入成功')
             self.data_txt.update()
             self.data_txt.see(END)
         self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
-        self.ser.flushInput()
-        self.mainwin.after(20)
+        self.mainwin.after(100,self.ser.flushInput())
         self.flag_ser = True
         self.recv = threading.Thread(target=self.recv_data)
         self.recv.start()
@@ -541,7 +590,7 @@ class MainSerial:
         try:
             entry = int(
                 simpledialog.askinteger(title='自定义间隔时间',
-                                        prompt='请输入自定义数字单位100ms：'))
+                                        prompt='请输入自定义数字单位ms：'))
             if entry % 100 == 0:
                 self.time_interval(entry)
             else:
@@ -569,15 +618,15 @@ class MainSerial:
                     else:
                         a = str(a) + 'ms'
                     self.data_txt.insert(
-                        END,
+                        END,'\n'+
                         str(datetime.datetime.now())[11:-3] +
-                        '识读间隔【%s】写入成功\n' % a)
+                        '识读间隔【%s】写入成功' % a)
+                    self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))
                     self.data_txt.update()
                     self.data_txt.see(END)
         except:
-            messagebox.showinfo('错误', '请检查串口连接')
-        self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
-        self.ser.flushInput()
+            messagebox.showinfo('错误', '请检查串口连接')  
+        self.mainwin.after(100)
         self.flag_ser = True
         self.recv = threading.Thread(target=self.recv_data)
         self.recv.start()
@@ -598,10 +647,11 @@ class MainSerial:
                 port_list_name.append(itms.device)
         self.port_list_name = port_list_name
         self.combobox_port["value"] = self.port_list_name
-        self.mainwin.update()
+        if self.port_list_name:
+            self.combobox_port.current(0) 
+        self.combobox_port.update()
 
     def open_port(self):
-
         self.com_choose = self.combobox_port.get()
         self.openport.config(state=NORMAL)
         self.openport.config(state=NORMAL)
@@ -610,16 +660,14 @@ class MainSerial:
             try:
                 self.ser = serial.Serial(self.combobox_port.get(),
                                          self.combobox_band.get(),
-                                         timeout=0.05,
+                                         timeout=30,
                                          parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE)
                 self.openport.config(text='已连接', bg='lightgreen')
                 self.combobox_port.config(state=DISABLED)
-                self.combobox_band.config(state=DISABLED)
+                #self.combobox_band.config(state=DISABLED)
                 self.recv = threading.Thread(target=self.recv_data)
                 self.recv.start()
-                self.data_txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
-                                '串口已打开\n')
-                self.data_txt.see(END)
+                
             except:
                 if self.com_choose == '':
                     messagebox.showinfo('错误', '没有找到端口')
@@ -631,7 +679,7 @@ class MainSerial:
                 self.ser.close()
                 self.openport.config(text='打开串口', bg='lightGray')
                 self.combobox_port.config(state=NORMAL)
-                self.combobox_band.config(state=NORMAL)
+                #self.combobox_band.config(state=NORMAL)
                 self.data_txt.insert(END, (str(datetime.datetime.now())[11:-3]) +
                                 '串口已关闭\n')
                 self.data_txt.see(END)
@@ -640,9 +688,9 @@ class MainSerial:
         #self.txt.delete(0.0, END)
         self.data_txt.delete(0.0, END)
 
-    def send_txt(self):
-        pass
-
+    def send_txt(self,data):
+            self.ser.write(bytes.fromhex(data))
+            
 
 if __name__ == '__main__':
     my_ser1 = MainSerial()
