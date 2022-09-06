@@ -25,6 +25,7 @@ class MainSerial:
         self.myserial = None
         self.ser = None
         self.flag_ser = None
+        self.port_list_name = ''
         class _PointAPI(Structure): # 用于getpos()中API函数的调用
             _fields_ = [("x", c_ulong), ("y", c_ulong)]
 
@@ -635,12 +636,17 @@ class MainSerial:
         self.mainwin.mainloop()
 
     def port_get(self):
-        self.port_list_name = ''
+        
         port_list = serial.tools.list_ports.comports()
         port_list_name = []
         # get all com
+        
         if len(port_list) == '':
-            print("the serial port can't find!")
+            self.port_list_name=''
+            print(port_list)
+            self.combobox_port.delete()
+            self.combobox_port.update()
+
 
         else:
             for itms in port_list:
