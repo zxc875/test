@@ -1,16 +1,28 @@
-import tkinter as Tk
+from tkinter import *
 
-def countlines(event):
-    (line, c) = map(int, event.widget.index("end-1c").split("."))
-    print (line, c)
+root = Tk()
 
-root = Tk.Tk()
-root.geometry("200x200")
-a = Tk.Text(root)
-a.pack()
-bindtags = list(a.bindtags())
-bindtags.insert(2,"custom")
-a.bindtags(tuple(bindtags))
-a.bind_class("custom","<Key>", countlines)
+w = Label(root, text="Right-click to display menu", width=40, height=20)
+w.pack()
 
-root.mainloop()
+# create a menu
+popup = Menu(root, tearoff=0)
+popup.add_command(label="Next") # , command=next) etc...
+popup.add_command(label="Previous")
+popup.add_separator()
+popup.add_command(label="Home")
+
+def do_popup(event):
+    # display the popup menu
+    try:
+        popup.tk_popup(event.x_root, event.y_root, 0)
+    finally:
+        # make sure to release the grab (Tk 8.0a1 only)
+        popup.grab_release()
+
+w.bind("<Button-3>", do_popup)
+
+b = Button(root, text="Quit", command=root.destroy)
+b.pack()
+
+mainloop()
