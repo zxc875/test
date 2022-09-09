@@ -163,7 +163,7 @@ class MainSerial:
                                             width=6,
                                             font=("宋体", 10))
         self.combobox_format["value"] = ['GBK', "UTF8",'ASCII']  # 常规编码方式
-        self.combobox_format.current(0)  # 默认选中GBK
+        self.combobox_format.current(1)  # 默认选中GBK
         self.combobox_format.place(x=280, y=30)  # 显示
         self.recv_hex = IntVar()
         self.check_hex = Checkbutton(self.mainwin,
@@ -175,6 +175,16 @@ class MainSerial:
                                      bg='lightGray')
         
         self.check_hex.place(x=350, y=30)
+        self.recv_time = IntVar()
+        self.check_time = Checkbutton(self.mainwin,
+                                     text='时间戳',
+                                     font=("宋体", 9),
+                                     onvalue=1,
+                                     offvalue=0,
+                                     variable=self.recv_time,
+                                     bg='lightGray')
+        
+        self.check_time.place(x=210, y=30)
         Label(self.mainwin,
               text='超时时间       ms',
               font=("宋体", 10),
@@ -344,9 +354,19 @@ class MainSerial:
         self.btn_CRLF.place(x=530,y=412)
         self.btn_None=Button(tab1,text='无', height=1,bg='lightGray',command=lambda:self.send_txt(Flag_Num='60',byte='11',Flag_bit='Bit6-5'))
         self.btn_None.place(x=572,y=412)
+        
         Label(self.mainwin, text='-' * 130, bg='lightGray').place(x=15, y=550)
         self.send_tx = Text(tab1, width=80, height=5)
         self.send_tx.place(x=15, y=452)
+        self.send_CR = IntVar()
+        self.check_CR = Checkbutton(tab1,
+                                     text='结束符换行',
+                                     font=("宋体", 9),
+                                     onvalue=1,
+                                     offvalue=0,
+                                     variable=self.send_CR,
+                                     bg='lightGray')
+        self.check_CR.place(x=595, y=415)
         self.send_hex = IntVar()
         menu = Menu(self.mainwin,
             tearoff=False,
@@ -385,9 +405,7 @@ class MainSerial:
         conf = configparser.ConfigParser()
         path='save_info.ini'
         conf.read(path)
-        section=conf.sections()
-        name=[]
-        names=locals()
+        section=conf.sections()       
         i=0 
         def popup(event):
                 menu.post(event.x_root, event.y_root) 
@@ -462,8 +480,7 @@ class MainSerial:
             s=[]
             for i in rec[4:-2]:
                 a=int(i,16)
-                print(a)
-                s.append[a]
+                s.append(str(a))
             s=''.join(s)
             print(s)            
 
@@ -477,49 +494,44 @@ class MainSerial:
     def recv_data(self):  #接收 待优化
         self.mainwin.after(100)
         self.ser.flushInput()
-        endline1=2
+        recv=[]
         if self.flag_ser == True:
             while 1:
                 if self.ser == None or self.flag_ser == False:
                     break
                 try:
                   if self.ser.in_waiting:
-                    if self.recv_hex.get() == 0:
-                        
-                        recv = self.ser.read_until()
-                        recv = recv.decode(self.combobox_format.get(),
-                                           'replace')
-                        self.data_txt.insert(
-                            END,str(datetime.datetime.now())[11:-3] + '[收]←'+recv+'\n' )
-                        self.data_txt.see(END)
-                        self.data_txt.update()
-                        self.data_txt.mark_set('insert',END)
-                    else:
-                        rec = str(
-                            binascii.b2a_hex(self.ser.read(
-                                self.ser.in_waiting)))[2:-1].upper()
-                        rec = re.findall('.{2}', rec)
-                        recv = ' '.join(rec)
-                        self.data_txt.insert(
-                            END,
-                            str(datetime.datetime.now())[11:-3] + '[收]←' +'\n'+
-                            recv )
-                        self.data_txt.see(END)
-                        self.data_txt.update()
-                        self.data_txt.mark_set('insert',END)
+                        data=self.ser.read(1).decode(self.combobox_format.get(),
+                                                'replace')
+                        recv.append(data)
+                        print(recv)
+                        if data=='\r' or data=='\t':
+                                    #print(recv)
+                            recv=''.join(recv)
+                            print(recv)
+                        if self.recv_hex.get() == 1:
+                            recv = str(
+                                    binascii.b2a_hex(recv))[2:-1].upper()+' '
+                            rec = re.findall('.{2}', rec)
+                            recv = ' '.join(rec)
+                        if self.recv_time.get()==1:
+                                self.data_txt.insert(
+                                        END,str(datetime.datetime.now())[11:-3] + '[收]←'+recv+'\n')
+                                self.data_txt.see(END)
+                        else:
+                                self.data_txt.insert(END,recv+'\n')
+                                self.data_txt.see(END)
                 except:
                     self.open_port()
-                
-                #self.data_txt.mark_set('insert',END)
-                
+               
                 
                 
                 try:
                     time.sleep(int(self.ent_timeout.get()) / 1000)
                 except:
                     time.sleep(0.02)
-  
-
+              
+                
     def time_self(self):  #时间自定义
         entry = None
         try:
@@ -596,7 +608,8 @@ class MainSerial:
             try:
                 self.ser = serial.Serial(self.combobox_port.get(),
                                          self.combobox_band.get(),
-                                         timeout=0.5,
+                                         timeout=0,
+                                        bytesize=serial.EIGHTBITS,
                                          parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE)
                 self.openport.config(text='已连接', bg='lightgreen')
                 self.combobox_port.config(state=DISABLED)
@@ -661,12 +674,12 @@ class MainSerial:
                         self.ser.in_waiting)))[2:-1].upper()
             if '02000001003331' in re:
                 self.data_txt.insert(
-                    END,'\n'+
+                    END,
                     str(datetime.datetime.now())[11:-3]  + '写入成功\n')
                 self.data_txt.update()
                 self.data_txt.see(END)
             self.ser.write(bytes.fromhex('7E 00 09 01 00 00 00 DE C8'))  #保存
-            self.mainwin.after(100,self.ser.flushInput())
+            self.mainwin.after(100)
             self.flag_ser = True
             self.recv = threading.Thread(target=self.recv_data)
             self.recv.start()
